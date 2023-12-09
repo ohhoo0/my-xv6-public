@@ -21,7 +21,8 @@ bootmain(void)
   struct proghdr *ph, *eph;
   void (*entry)(void);
   uchar* pa;
-
+  // 先把0x10000处设置为暂存区，只把内核的elf读出来分配空间
+  // 一会再把内核的整体读出来到entry处：这边分为 1. elf读取和 2. 内核镜像读取 
   elf = (struct elfhdr*)0x10000;  // scratch space
 
   // Read 1st page off disk
@@ -30,8 +31,9 @@ bootmain(void)
   // Is this an ELF executable?
   if(elf->magic != ELF_MAGIC)
     return;  // let bootasm.S handle error
-
+  // 加载内核以及相关程序到0x100000处，其余程序在其之后
   // Load each program segment (ignores ph flags).
+  
   ph = (struct proghdr*)((uchar*)elf + elf->phoff);
   eph = ph + elf->phnum;
   for(; ph < eph; ph++){
@@ -43,6 +45,11 @@ bootmain(void)
 
   // Call the entry point from the ELF header.
   // Does not return!
+  // 把elf头里面的entry字段读出来，类型转换为指针
+  // 虽然加载到0x100000处，但是这边直接跳转到entry处执行，entry是0x10000c处
+  // 也就是内核的实际入口地址
+  // objdump -d entry.o 可知
+  // 从entry处开始的第一句代码，也就是伟大的内核在工作了！
   entry = (void(*)(void))(elf->entry);
   entry();
 }
@@ -75,6 +82,7 @@ readsect(void *dst, uint offset)
 
 // Read 'count' bytes at 'offset' from kernel into physical address 'pa'.
 // Might copy more than asked.
+// 读取扇区到pa处，大小为count，基于首地址偏移offset
 void
 readseg(uchar* pa, uint count, uint offset)
 {

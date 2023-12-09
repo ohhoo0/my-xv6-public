@@ -37,11 +37,14 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 {
   pde_t *pde;
   pte_t *pgtab;
-
+  // 拿到前10位,去页目录取这个页表的地址
+  // pde是页表的地址，
   pde = &pgdir[PDX(va)];
   if(*pde & PTE_P){
+    // 如果这个页表项存在，那么获得其内容，即页表项的内容，页的实际地址（页帧号）
     pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
   } else {
+    // 如果不存在，直接创建一个页表
     if(!alloc || (pgtab = (pte_t*)kalloc()) == 0)
       return 0;
     // Make sure all those PTE_P bits are zero.
@@ -51,6 +54,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
     // entries, if necessary.
     *pde = V2P(pgtab) | PTE_P | PTE_W | PTE_U;
   }
+  
   return &pgtab[PTX(va)];
 }
 
@@ -62,9 +66,12 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 {
   char *a, *last;
   pte_t *pte;
-
+  // 去除偏移量，只保留页目录索引和页索引
+  // 即前面的10+10,去除后面的12
+  // PGSIZE = 4KB
   a = (char*)PGROUNDDOWN((uint)va);
   last = (char*)PGROUNDDOWN(((uint)va) + size - 1);
+  // 逐页处理
   for(;;){
     if((pte = walkpgdir(pgdir, a, 1)) == 0)
       return -1;
@@ -118,17 +125,41 @@ static struct kmap {
 pde_t*
 setupkvm(void)
 {
+  // 页目录指针，将会赋值给CR3寄存器
   pde_t *pgdir;
+  // 页表内容数组
   struct kmap *k;
-
+  // 创建一个4KB页目录
   if((pgdir = (pde_t*)kalloc()) == 0)
     return 0;
+  // 置为0
   memset(pgdir, 0, PGSIZE);
   if (P2V(PHYSTOP) > (void*)DEVSPACE)
     panic("PHYSTOP too high");
+  // 将新建的kmap变量k赋值为 全局内核的虚拟内存映射表kmap
+  // 并且在这个新建的副本变量上，把结构体真实地创建出页表
+  // 传入的参数是页表项，页映射关系和权限等等细节
+  // 并且清空其内容
+  // 完成后返回内核页表项地址
+  // 32 = 10 + 10 + 12
+  /*
+  如果我们将一个 32 位地址划分成 10 + 10 + 12 位，每部分的大小如下所示：
+  1. 前 10 位（高位）： 用于表示页目录索引。
+  这 10 位可以表示2 ^10=1024 个不同的页目录项。每个页目录项指向一个页表。
+  2. 中间 10 位： 用于表示页表索引。
+  这 10 位可以表示2^10=1024 个不同的页表项。每个页表项指向一个物理页面。
+  3. 后 12 位（低位）： 用于表示偏移量。
+  这 12 位可以表示一个页面内的2^12=4096 个不同偏移量位置(4096Byte = 4KB)，即一个页面的大小。
+  总体来说，这种划分方式允许操作系统管理和访问整个 32 位地址空间。
+  这种划分方式支持了以页面为单位的内存管理，允许以页面为粒度来对内存进行管理和操作。
+  */
+  // 实际就是小于最后一个元素地址的后一个，等价于小于等于最后一个元素的地址
+  // 这个函数实际上，把刚才那四个数组元素代表的页分配结构，真实地创建出二级页表结构。
   for(k = kmap; k < &kmap[NELEM(kmap)]; k++)
+    // 基于页目录的地址，去创建二级页表结构！ map pages -> 映射页面的过程
     if(mappages(pgdir, k->virt, k->phys_end - k->phys_start,
                 (uint)k->phys_start, k->perm) < 0) {
+      // 用于清空空间，不用细看
       freevm(pgdir);
       return 0;
     }
@@ -140,7 +171,9 @@ setupkvm(void)
 void
 kvmalloc(void)
 {
+  // 创建二级页表结构
   kpgdir = setupkvm();
+  // 创建完直接切换原来的硬件页表到内核二级页表
   switchkvm();
 }
 

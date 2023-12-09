@@ -43,11 +43,13 @@ _start = V2P_WO(entry)
 # Entering xv6 on boot processor, with paging off.
 .globl entry
 entry:
-  # Turn on page size extension for 4Mbyte pages
+  # Turn on Page Size Extension(CR4_PSE) for 4Mbyte pages
+  # 相当于把CR4_PSE打开，允许4字节的页大小
   movl    %cr4, %eax
   orl     $(CR4_PSE), %eax
   movl    %eax, %cr4
   # Set page directory
+  # 把页目录的地址加载到cr3寄存器中
   movl    $(V2P_WO(entrypgdir)), %eax
   movl    %eax, %cr3
   # Turn on paging.
