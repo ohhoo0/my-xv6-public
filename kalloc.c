@@ -84,7 +84,7 @@ char*
 kalloc(void)
 {
   struct run *r;
-
+  // 相当于是一个链表结构，头指针就是最先可以用的空闲页面，如果要增加空闲页面则往链表的尾部插入
   if(kmem.use_lock)
     acquire(&kmem.lock);
   r = kmem.freelist;
